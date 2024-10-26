@@ -172,8 +172,7 @@ user_agents = [
     'Mozilla/5.0 (iPhone; CPU iPhone OS 13_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0 Mobile/15E148 Safari/604.1',
     'Mozilla/5.0 (Linux; Android 10; SM-G970F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Mobile Safari/537.36',
     'Mozilla/5.0 (Linux; Android 9; SM-J610FN Build/PPR1.180610.011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Mobile Safari/537.36',
-]
+    ]
 
-
-    user_agent_rotator = UserAgentRotator(user_agents)
-    add_views_concurrently(link, service_installer.proxy_rotator, user_agent_rotator, total_views)
+user_agent_rotator = UserAgentRotator(user_agents)
+add_views_concurrently(link, service_installer.proxy_rotator, user_agent_rotator, total_views)
