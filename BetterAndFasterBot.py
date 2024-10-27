@@ -67,10 +67,10 @@ class BehaviorSimulator:
     def __init__(self):
         # Time ranges for different behaviors (in seconds)
         self.page_view_times = {
-            'quick_bounce': (5, 10),
-            'brief_view': (15, 45),
-            'detailed_view': (60, 180),
-            'thorough_view': (180, 300)
+            'quick_bounce': (1, 2),
+            'brief_view': (2, 4),
+            'detailed_view': (6, 10),
+            'thorough_view': (10, 20)
         }
         
         # Probability weights for different behaviors
